@@ -265,13 +265,13 @@ def build_wide(
     #   prevent_crim  = implemented laws/policies/practices to prevent criminalization
     if df_1d4 is not None and not df_1d4.empty:
         df_1d4 = df_1d4.copy()
-        df_1d4 = df_1d4[df_1d4["index"].between(1, 4)]
-        for i in range(1, 5):
+        df_1d4 = df_1d4[df_1d4["index"].between(1, 3)]   # <- 3 not 4
+        for i in range(1, 4):                            # <- 3 not 4
             row = df_1d4[df_1d4["index"] == i]
             wide[f"1d_4_{i}_policymakers"] = row["engaged"].iloc[0] if not row.empty else ""
             wide[f"1d_4_{i}_prevent_crim"]  = row["implemented"].iloc[0] if not row.empty else ""
     else:
-        for i in range(1, 5):
+        for i in range(1, 4):                            # <- 3 not 4
             wide[f"1d_4_{i}_policymakers"] = ""
             wide[f"1d_4_{i}_prevent_crim"]  = ""
 
@@ -282,11 +282,11 @@ def build_wide(
     wide["1d_5_2024"]   = val_1d5_2024 or ""
 
 
-    # 1D-6 – Mainstream benefits yes/no (1..7)
+     # 1D-6 – Mainstream benefits yes/no (1..6)
     if df_1d6 is not None and not df_1d6.empty:
-        wide.update(_wide_map(df_1d6, "1d_6", 7))
+        wide.update(_wide_map(df_1d6, "1d_6", 6))
     else:
-        for i in range(1, 8):
+        for i in range(1, 7):
             wide[f"1d_6_{i}"] = ""
 
     # 1D-6a etc – narratives you already had
@@ -375,10 +375,22 @@ def col_order_extended() -> list[str]:
     cols += [f"1c_4_{i}" for i in range(1, 5)] + ["1c_4a","1c_4b"]
     for i in range(1, 10):
         cols += [f"1c_4c_{i}_mou", f"1c_4c_{i}_oth"]
-    cols += [f"1c_5_{i}" for i in range(1, 4)] + ["1c_5a","1c_5b","1c_5d","1c_5e","1c_5f"]
-    cols += [f"1c_6_{i}" for i in range(1, 4)] + ["1c_6a"]
 
-    # 1C-7 table + narratives we already had:
+    # --- 1C-5 / 1C-6 / 1C-7 ordering ---
+
+    # 1C-5 (three yes/no items) + 5a/5b
+    cols += [f"1c_5_{i}" for i in range(1, 4)] + ["1c_5a", "1c_5b"]
+
+    # 1C-5c table: project / CES counts (rows 1..6)
+    for i in range(1, 7):
+        cols += [f"1c_5c_{i}_proj", f"1c_5c_{i}_ces"]
+
+    # 1C-5d/e/f narratives, then 1C-6a narrative
+    # Local order here will be:
+    #   1c_5a 1c_5b 1c_5c_* ... 1c_5c_6_ces 1c_5d 1c_5e 1c_5f 1c_6a 1c_7_pha_name_1 ...
+    cols += ["1c_5d", "1c_5e", "1c_5f", "1c_6a"]
+
+    # 1C-7 PHA table (up to 2 rows) + 1C-7a narrative
     for i in range(1, 3):
         cols += [
             f"1c_7_pha_name_{i}",
@@ -388,10 +400,14 @@ def col_order_extended() -> list[str]:
         ]
     cols += ["1c_7a"]
 
-    # NEW: 1C-7b, 1C-7c, 1C-7d, 1C-7e
+    # 1C-7b, 1C-7c, 1C-7d, 1C-7e
     cols += [f"1c_7b_{i}" for i in range(1, 5)]
     cols += [f"1c_7c_{i}" for i in range(1, 8)]
     cols += ["1c_7d_1", "1c_7d_2", "1c_7e"]
+
+    # # Now park the 1C-6 yes/no items at the END of the 1C block
+    # # so they don't interrupt 5d/5e/5f/6a or 1C-7 PHA fields
+    # cols += [f"1c_6_{i}" for i in range(1, 4)]
 
     # 1D
     cols += [f"1d_1_{i}" for i in range(1, 5)]
@@ -399,15 +415,14 @@ def col_order_extended() -> list[str]:
     cols += ["1d_3"]
 
     # 1D-4 – strategies to prevent criminalization
-    for i in range(1, 5):
+    for i in range(1, 4):
         cols += [f"1d_4_{i}_policymakers", f"1d_4_{i}_prevent_crim"]
 
     # 1D-5 – RRH beds
     cols += ["1d_5_hmis", "1d_5_2023", "1d_5_2024"]
 
-
-    # 1D-6 – mainstream benefits (1..7)
-    cols += [f"1d_6_{i}" for i in range(1, 8)]
+    # 1D-6 – mainstream benefits (1..6)
+    cols += [f"1d_6_{i}" for i in range(1, 7)]
 
     # Narratives
     cols += ["1d_6a", "1d_7", "1d_7a", "1d_8", "1d_8a", "1d_8b"]

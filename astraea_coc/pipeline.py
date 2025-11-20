@@ -587,35 +587,84 @@ def parse_1d(pages, meta_vals, pdf_path: Path, out_dir: Path) -> dict:
     ]
     lines_1d2 = slice_section_lines(pages, start_1d2, stop_1d2, safety_pages_ahead=2)
 
-    nums_1d2: list[str] = []
-    skip_enums = {"1", "2", "3"}
+    def _grab_answer_after_question(lines: list[str], question_rx: "_re.Pattern", max_lookahead: int = 10) -> str:
+        """
+        Find the first number-like token (e.g., '13', '100%') on the lines
+        immediately following a line matching question_rx.
+        """
+        for idx, ln in enumerate(lines):
+            if question_rx.search(ln):
+                # look ahead a few lines for the numeric answer
+                for ln2 in lines[idx + 1 : idx + 1 + max_lookahead]:
+                    # stop if we hit another numbered sub-question (1., 2., 3.)
+                    if _re.match(r"^\s*[123]\.\s", ln2):
+                        break
+                    # stop if we accidentally wander into the next section
+                    if _re.match(r"^\s*[1I]D[-–]2a\.", ln2) or _re.match(r"^\s*[1I]D[-–]3\.", ln2):
+                        break
 
-    for ln in lines_1d2:
-        # find all number-ish tokens, e.g. "13", "100%"
-        for tok in _re.findall(r"\b\d+%?\b", ln):
-            if tok in skip_enums:
-                continue  # skip the question numbers 1, 2, 3
+                    m = _re.search(r"\b(\d+%?)\b", ln2)
+                    if not m:
+                        continue
+                    tok = m.group(1)
 
-            # strip '%' for numeric checks
-            num = int(tok.rstrip("%"))
+                    # Skip years (e.g., 2024) unless they are explicitly percentages
+                    if not tok.endswith("%"):
+                        try:
+                            num = int(tok)
+                        except ValueError:
+                            continue
+                        if 1900 <= num <= 2100:
+                            continue
 
-            # if it looks like a year (1900–2100) and is NOT a percentage, skip it
-            if not tok.endswith("%") and 1900 <= num <= 2100:
-                continue
+                    return tok
+                break
+        return ""
 
-            nums_1d2.append(tok)
+    # Match the exact HUD prompt wording as anchors
+    q1_rx = _re.compile(r"^\s*1\.\s*Enter\s+the\s+total\s+number", _re.IGNORECASE)
+    q2_rx = _re.compile(r"^\s*2\.\s*Enter\s+the\s+total\s+number", _re.IGNORECASE)
+    q3_rx = _re.compile(r"^\s*3\.\s*This\s+number\s+is\s+a\s+calculation", _re.IGNORECASE)
+
+    val_1d2_1 = _grab_answer_after_question(lines_1d2, q1_rx)
+    val_1d2_2 = _grab_answer_after_question(lines_1d2, q2_rx)
+    val_1d2_3 = _grab_answer_after_question(lines_1d2, q3_rx)
+
+    # --- fallback: if for some reason we didn't get all 3, use the generic numeric scan ---
+    if not (val_1d2_1 and val_1d2_2 and val_1d2_3):
+        nums_1d2: list[str] = []
+        skip_enums = {"1", "2", "3"}
+
+        for ln in lines_1d2:
+            # find all number-ish tokens, e.g. "13", "100%"
+            for tok in _re.findall(r"\b\d+%?\b", ln):
+                if tok in skip_enums:
+                    continue  # skip the question numbers 1, 2, 3
+
+                # strip '%' for numeric checks
+                try:
+                    num = int(tok.rstrip("%"))
+                except ValueError:
+                    continue
+
+                # if it looks like a year (1900–2100) and is NOT a percentage, skip it
+                if not tok.endswith("%") and 1900 <= num <= 2100:
+                    continue
+
+                nums_1d2.append(tok)
+                if len(nums_1d2) == 3:
+                    break
             if len(nums_1d2) == 3:
                 break
-        if len(nums_1d2) == 3:
-            break
 
-    val_1d2_1 = nums_1d2[0] if len(nums_1d2) >= 1 else ""
-    val_1d2_2 = nums_1d2[1] if len(nums_1d2) >= 2 else ""
-    val_1d2_3 = nums_1d2[2] if len(nums_1d2) >= 3 else ""
+        val_1d2_1 = val_1d2_1 or (nums_1d2[0] if len(nums_1d2) >= 1 else "")
+        val_1d2_2 = val_1d2_2 or (nums_1d2[1] if len(nums_1d2) >= 2 else "")
+        val_1d2_3 = val_1d2_3 or (nums_1d2[2] if len(nums_1d2) >= 3 else "")
 
     # ensure 1D-2(3) is stored as a percentage string
     if val_1d2_3 and not val_1d2_3.endswith("%"):
         val_1d2_3 = f"{val_1d2_3}%"
+
 
     # --- 1D-2a. Housing First evaluation narrative ---
     start_1d2a = [
@@ -750,6 +799,45 @@ def parse_1d(pages, meta_vals, pdf_path: Path, out_dir: Path) -> dict:
         stop_patterns=stop_1d6a,
         keep_paragraphs=True,
     )
+
+    # --- Fallback: if extract_narrative_after_limit didn't find anything (OCR weirdness) ---
+    if not narr_1d6a.strip():
+        header_6a_rx = _re.compile(r"^\s*[1I]D[-–]6a\.", _re.IGNORECASE)
+        skip_6a_rx = _re.compile(
+            r"^\s*(NOFO Section|Applicant:|Project:|FY20\d{2}\s+CoC Application Page)",
+            _re.IGNORECASE,
+        )
+        describe_rx = _re.compile(r"^Describe\s+in\s+the\s+field\s+below", _re.IGNORECASE)
+
+        started = False
+        narr_lines_6a: list[str] = []
+
+        for ln in lines_1d6a:
+            # Drop the header and generic boilerplate
+            if header_6a_rx.search(ln):
+                continue
+            if skip_6a_rx.search(ln):
+                continue
+            # This is the “Describe in the field below…” prompt – use it as an anchor,
+            # but don't keep it in the narrative.
+            if describe_rx.search(ln):
+                started = True
+                continue
+
+            if not started:
+                # Still before the narrative anchor – ignore
+                continue
+
+            # After we've started, keep non-empty lines as part of the narrative
+            if not ln.strip():
+                # allow blank lines as paragraph breaks
+                narr_lines_6a.append("")
+                continue
+
+            narr_lines_6a.append(ln.rstrip())
+
+        narr_1d6a = "\n".join(narr_lines_6a).strip()
+
 
     # --- 1D-7. Public health infectious disease response ---
     start_1d7 = [
