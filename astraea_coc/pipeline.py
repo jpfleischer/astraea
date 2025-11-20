@@ -15,7 +15,7 @@ from .parsers import (
 
 from .narratives import extract_narrative_after_limit
 from .build_wide import build_wide, col_order_extended
-from .utils import ts, save_text_unique, save_csv_unique
+from .utils import ts, save_text_unique, save_csv_unique, norm_token
 
 
 def parse_1b(pages, meta_vals, pdf_path: Path, out_dir: Path) -> dict:
@@ -1035,7 +1035,7 @@ def parse_1d(pages, meta_vals, pdf_path: Path, out_dir: Path) -> dict:
         keep_paragraphs=True,
     )
 
-    # --- 1D-10. Incorporating Persons with Lived Experience (narrative) ---
+        # --- 1D-10. Involving Individuals with Lived Experience (outreach efforts) ---
     start_1d10 = [
         r"^\s*[1I]D[-–]10\.\s*",
     ]
@@ -1045,22 +1045,58 @@ def parse_1d(pages, meta_vals, pdf_path: Path, out_dir: Path) -> dict:
     ]
     lines_1d10 = slice_section_lines(pages, start_1d10, stop_1d10, safety_pages_ahead=3)
 
-    narr_lines_1d10: list[str] = []
     header_1d10_rx = _re.compile(r"^\s*[1I]D[-–]10\.", _re.IGNORECASE)
     skip_1d10_rx = _re.compile(
-        r"^\s*(NOFO Section|Applicant:|Project:|FY20\d{2}\s+CoC Application Page)",
+        r"^\s*(NOFO Section|Applicant:|Project:|FY20\d{2}\s+CoC Application Page|Page\s+\d+)",
         _re.IGNORECASE,
     )
+    describe_rx = _re.compile(r"Describe\s+in\s+the\s+field\s+below", _re.IGNORECASE)
+    limit_rx = _re.compile(r"limit\s+2,?500\s+characters", _re.IGNORECASE)
+
+    state = "seek_prompt"  # seek_prompt -> in_prompt -> in_answer
+    narr_lines_1d10: list[str] = []
 
     for ln in lines_1d10:
+        # always drop headers/boilerplate
         if header_1d10_rx.search(ln):
             continue
         if skip_1d10_rx.search(ln):
             continue
-        if not ln.strip():
+
+        # normalize for easier checks
+        stripped = ln.strip()
+
+        if state == "seek_prompt":
+            # once we see NOFO or Describe, we are in prompt land
+            if "NOFO Section" in ln or describe_rx.search(ln):
+                state = "in_prompt"
+                continue
+            # if OCR missed the prompt entirely, fall back:
+            if stripped:
+                state = "in_answer"
+            else:
+                continue  # still before anything useful
+
+        if state == "in_prompt":
+            # prompt ends at the limit line OR a blank line after prompt
+            if limit_rx.search(ln):
+                state = "in_answer"
+                continue
+            if not stripped:
+                state = "in_answer"
+                continue
+            # otherwise: still prompt text, skip it
             continue
-        narr_lines_1d10.append(ln.rstrip())
+
+        if state == "in_answer":
+            if not stripped:
+                # keep paragraph breaks
+                narr_lines_1d10.append("")
+            else:
+                narr_lines_1d10.append(ln.rstrip())
+
     narr_1d10 = "\n".join(narr_lines_1d10).strip()
+
 
     # --- 1D-10a. Roles of persons with lived experience (numeric table) ---
     start_1d10a = [
@@ -1126,8 +1162,78 @@ def parse_1d(pages, meta_vals, pdf_path: Path, out_dir: Path) -> dict:
         keep_paragraphs=True,
     )
 
-    # 1D-11 – no question text in this CoC pdf, so leave blank placeholder
-    val_1d11 = ""
+        # --- 1D-11. Increasing Affordable Housing Supply ---
+    start_1d11 = [
+        r"^\s*[1I]D[-–]11\.\s*",   # "1D-11." (OCR sometimes makes I vs 1)
+    ]
+    stop_1d11 = [
+        r"^\s*1E[-–]1\.",          # "1E-1. Web Posting of Advance Public Notice..."
+        r"^\s*1E\.",               # safety: "1E. Project Capacity, Review, and Ranking–Local"
+    ]
+
+    lines_1d11 = slice_section_lines(
+        pages,
+        start_1d11,
+        stop_1d11,
+        safety_pages_ahead=3,
+    )
+
+    narr_lines_1d11: list[str] = []
+
+    header_1d11_rx = _re.compile(r"^\s*[1I]D[-–]11\.", _re.IGNORECASE)
+    skip_1d11_rx = _re.compile(
+        r"^\s*(NOFO Section|Applicant:|Project:|FY20\d{2}\s+CoC Application Page)",
+        _re.IGNORECASE,
+    )
+    describe_1d11_rx = _re.compile(
+        r"^Describe\s+in\s+the\s+field\s+below",
+        _re.IGNORECASE,
+    )
+    limit_1d11_rx = _re.compile(
+        r"limit\s+2,500\s+characters",
+        _re.IGNORECASE,
+    )
+
+    started_1d11 = False
+
+    for ln in lines_1d11:
+        # Drop the "1D-11." header line
+        if header_1d11_rx.search(ln):
+            continue
+
+        # Drop NOFO / Applicant / Project / page footer lines
+        if skip_1d11_rx.search(ln):
+            continue
+
+        # Drop the "Describe in the field below..." line but treat as start anchor
+        if describe_1d11_rx.search(ln):
+            started_1d11 = True
+            continue
+
+        # Drop the "(limit 2,500 characters)" line
+        if limit_1d11_rx.search(ln):
+            started_1d11 = True
+            continue
+
+        # Ignore leading blanks until we've started
+        if not ln.strip():
+            if not started_1d11:
+                continue
+            # inside narrative, keep blanks as paragraph breaks
+            narr_lines_1d11.append("")
+            continue
+
+        # If for some reason there was no explicit "Describe..." line,
+        # start on the first non-header, non-skip, non-empty line.
+        if not started_1d11:
+            started_1d11 = True
+
+        narr_lines_1d11.append(ln.rstrip())
+
+    narr_1d11 = "\n".join(narr_lines_1d11).strip()
+
+    val_1d11 = narr_1d11
+
 
     return {
         "df_1d1": df_1d1,
@@ -1168,6 +1274,226 @@ def parse_1d(pages, meta_vals, pdf_path: Path, out_dir: Path) -> dict:
     }
 
 
+def parse_1e(pages) -> dict[str, str]:
+    out: dict[str, str] = {}
+
+    yesno_rx = _re.compile(r"\b(Yes|No)\b", _re.IGNORECASE)
+    date_rx = _re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
+
+    def _extract_narrative_block(lines: list[str]) -> str:
+        """
+        Narrative extractor that avoids including the HUD prompt/bullets.
+
+        Behavior:
+        - Ignore boilerplate headers/footers.
+        - After we see "Describe in the field below", we enter PROMPT mode and
+          skip everything until:
+            a) the "(limit 2,500 characters)" line, OR
+            b) a blank line after prompt text (OCR sometimes drops the limit line).
+        - Only then start capturing the real narrative.
+        """
+        header_skip = _re.compile(
+            r"^\s*(NOFO Section|Applicant:|Project:|FY20\d{2}\s+CoC Application Page|Page\s+\d+)",
+            _re.IGNORECASE,
+        )
+        limit_line = _re.compile(r"limit\s*2,?500\s*characters", _re.IGNORECASE)
+        describe_line = _re.compile(r"Describe\s+in\s+the\s+field\s+below", _re.IGNORECASE)
+
+        state = "seek_anchor"  # seek_anchor -> in_prompt -> in_answer
+        prompt_seen = False
+        buf: list[str] = []
+
+        for ln in lines:
+            if header_skip.search(ln):
+                continue
+
+            stripped = ln.strip()
+
+            if state == "seek_anchor":
+                # Wait until we hit Describe or limit (some PDFs jump straight to limit)
+                if describe_line.search(ln):
+                    state = "in_prompt"
+                    prompt_seen = True
+                    continue
+                if limit_line.search(ln):
+                    state = "in_answer"
+                    continue
+                # If no anchor yet, ignore
+                continue
+
+            if state == "in_prompt":
+                # Prompt ends at limit line...
+                if limit_line.search(ln):
+                    state = "in_answer"
+                    continue
+                # ...or a blank line after we've seen prompt text.
+                if not stripped and prompt_seen:
+                    state = "in_answer"
+                    continue
+                # Otherwise still prompt text—skip it
+                if stripped:
+                    prompt_seen = True
+                continue
+
+            # state == "in_answer"
+            if not stripped:
+                buf.append("")          # keep paragraph breaks
+            else:
+                buf.append(ln.rstrip())
+
+        return "\n".join(buf).strip()
+
+    def _map_yesno_df(df, prefix: str, n_items: int):
+        """
+        df from parse_numbered_yesno() has columns: index, value
+        """
+        for i in range(1, n_items + 1):
+            val = ""
+            if not df.empty:
+                row = df[df["index"] == i]
+                if not row.empty:
+                    val = str(row["value"].iloc[0]).strip()
+            out[f"{prefix}{i}"] = val
+
+    # -------------------------
+    # 1E-1: two dates
+    # -------------------------
+    lines_1e1 = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*1E[-–]1\.\s*Web Posting of Advance Public Notice"],
+        stop_patterns=[r"^\s*1E[-–]2\."],
+        safety_pages_ahead=2,
+    )
+    text_1e1 = "\n".join(lines_1e1)
+    dates = date_rx.findall(text_1e1)
+    out["val_1e_1_1"] = dates[0] if len(dates) > 0 else ""
+    out["val_1e_1_2"] = dates[1] if len(dates) > 1 else ""
+
+    # -------------------------
+    # 1E-2: yes/no chart (1..6)
+    # -------------------------
+    lines_1e2 = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*1E[-–]2\.\s*Project Review and Ranking Process"],
+        stop_patterns=[r"^\s*1E[-–]2a\."],
+        safety_pages_ahead=2,
+    )
+    df_1e2 = parse_numbered_yesno(lines_1e2)
+    _map_yesno_df(df_1e2, prefix="val_1e_2_", n_items=6)
+
+    # -------------------------
+    # 1E-2a: three detail fields
+    # -------------------------
+    lines_1e2a = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*1E[-–]2a\.\s*Scored Project Forms"],
+        stop_patterns=[r"^\s*1E[-–]2b\."],
+        safety_pages_ahead=2,
+    )
+    text_1e2a = "\n".join(lines_1e2a)
+
+    m1 = _re.search(
+        r"maximum number of points available.*?\?\s*([0-9]+)",
+        text_1e2a, flags=_re.IGNORECASE | _re.DOTALL
+    )
+    out["val_1e_2a_1"] = m1.group(1) if m1 else ""
+
+    m2 = _re.search(
+        r"How many renewal projects did your CoC submit.*?\?\s*([0-9]+)",
+        text_1e2a, flags=_re.IGNORECASE | _re.DOTALL
+    )
+    out["val_1e_2a_2"] = m2.group(1) if m2 else ""
+
+    m3 = _re.search(
+        r"What renewal project type did most applicants use\?\s*([A-Za-z0-9\-/ ]+)",
+        text_1e2a, flags=_re.IGNORECASE
+    )
+    out["val_1e_2a_3"] = m3.group(1).strip() if m3 else ""
+
+    # -------------------------
+    # 1E-2b: narrative
+    # -------------------------
+    lines_1e2b = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*1E[-–]2b\.\s*Addressing Severe Barriers"],
+        stop_patterns=[r"^\s*1E[-–]3\."],
+        safety_pages_ahead=3,
+    )
+    out["narr_1e_2b"] = _extract_narrative_block(lines_1e2b)
+
+    # -------------------------
+    # 1E-3: narrative
+    # -------------------------
+    lines_1e3 = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*1E[-–]3\.\s*Advancing Racial Equity"],
+        stop_patterns=[r"^\s*1E[-–]4\."],
+        safety_pages_ahead=3,
+    )
+    out["narr_1e_3"] = _extract_narrative_block(lines_1e3)
+
+    # -------------------------
+    # 1E-4: narrative
+    # -------------------------
+    lines_1e4 = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*1E[-–]4\.\s*Reallocation"],
+        stop_patterns=[r"^\s*1E[-–]4a\."],
+        safety_pages_ahead=3,
+    )
+    out["narr_1e_4"] = _extract_narrative_block(lines_1e4)
+
+    # -------------------------
+    # 1E-4a: yes/no single value
+    # -------------------------
+    lines_1e4a = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*1E[-–]4a\.\s*Reallocation Between"],
+        stop_patterns=[r"^\s*1E[-–]5\."],
+        safety_pages_ahead=2,
+    )
+    val_1e_4a = ""
+    for ln in reversed(lines_1e4a):
+        m = yesno_rx.search(ln)
+        if m:
+            val_1e_4a = m.group(1).title()
+            break
+    out["val_1e_4a"] = val_1e_4a
+
+    # -------------------------
+    # 1E-5: yes/no chart (1..4)
+    # -------------------------
+    lines_1e5 = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*1E[-–]5\.\s*Projects Rejected/Reduced"],
+        stop_patterns=[r"^\s*1E[-–]5a\."],
+        safety_pages_ahead=2,
+    )
+    df_1e5 = parse_numbered_yesno(lines_1e5)
+    _map_yesno_df(df_1e5, prefix="val_1e_5_", n_items=4)
+
+    # -------------------------
+    # 1E-5a..5d: narratives
+    # -------------------------
+    def _slice_5(letter: str, next_letter: str | None):
+        start = [rf"^\s*1E[-–]5{letter}\.\s*"]
+        stop = [rf"^\s*1E[-–]5{next_letter}\.\s*"] if next_letter else [r"^\s*2A[-–]1\."]
+        return slice_section_lines(pages, start_patterns=start, stop_patterns=stop, safety_pages_ahead=2)
+
+    lines_1e5a = _slice_5("a", "b")
+    lines_1e5b = _slice_5("b", "c")
+    lines_1e5c = _slice_5("c", "d")
+    lines_1e5d = _slice_5("d", None)
+
+    out["narr_1e_5a"] = _extract_narrative_block(lines_1e5a)
+    out["narr_1e_5b"] = _extract_narrative_block(lines_1e5b)
+    out["narr_1e_5c"] = _extract_narrative_block(lines_1e5c)
+    out["narr_1e_5d"] = _extract_narrative_block(lines_1e5d)
+
+    return out
+
+
+
 def run_all(pdf_path: Path, out_dir: Path | None = None) -> dict:
     """
     End-to-end parse for 1A, 1B-1, 1C-1..7, and all of 1D.
@@ -1193,6 +1519,7 @@ def run_all(pdf_path: Path, out_dir: Path | None = None) -> dict:
     section_data.update(parse_1b(pages, meta_vals, pdf_path, out_dir))
     section_data.update(parse_1c(pages, meta_vals, pdf_path, out_dir))
     section_data.update(parse_1d(pages, meta_vals, pdf_path, out_dir))
+    section_data.update(parse_1e(pages))
 
     # Build wide table
     wide_df = build_wide(
@@ -1201,9 +1528,12 @@ def run_all(pdf_path: Path, out_dir: Path | None = None) -> dict:
     )
 
     # Order columns and save
-    cols = [c for c in col_order_extended() if c in wide_df.columns]
-    wide_df = wide_df.reindex(columns=cols)
+    ordered = col_order_extended()
+    extras = [c for c in wide_df.columns if c not in ordered]
+    wide_df = wide_df.reindex(columns=ordered + extras)
     save_csv_unique(out_dir / f"{pdf_path.stem}__1a_1b_1c_wide.csv", wide_df)
+
+    
 
     # Collect outputs
     result: dict[str, object] = {

@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import pandas as pd
 from .utils import norm_token
+
 
 def _wide_map(df, section_prefix: str, max_index: int):
     if df is None or df.empty:
@@ -16,91 +18,48 @@ def _wide_map(df, section_prefix: str, max_index: int):
         out[f"{section_prefix}_{i}"] = d.get(i, "")
     return out
 
+
 def build_wide(
     *,
     meta_vals: dict[str, str],
 
-    # 1B
-    df_1b1,
-    narr_1b1a: str,
-    narr_1b2: str,
-    narr_1b3: str,
-    narr_1b4: str,
+    # DataFrames that need special shaping
+    df_1b1=None,
 
-    # 1C
-    df_1c1,
-    df_1c2,
-    df_1c3,
-    df_1c4_basic,
-    df_1c4c,
-    df_1c5_basic,
-    df_1c5c,
-    df_1c6,
-    df_1c7,
-    df_1c7b,
-    df_1c7c,
+    df_1c1=None,
+    df_1c2=None,
+    df_1c3=None,
+    df_1c4_basic=None,
+    df_1c4c=None,
+    df_1c5_basic=None,
+    df_1c5c=None,
+    df_1c6=None,
+    df_1c7=None,
+    df_1c7b=None,
+    df_1c7c=None,
 
-    narr_1c4a: str,
-    narr_1c4b: str,
-    narr_1c5a: str,
-    narr_1c5b: str,
-    narr_1c5d: str,
-    narr_5e: str,
-    narr_5f: str,
-    narr_1c6a: str,
-    narr_1c7a: str,
+    df_1d1=None,
+    df_1d4=None,
+    df_1d6=None,
+    df_1d9b=None,
 
-    val_1c7d_1: str,
-    narr_1c7d_2: str,
-    val_1c7e: str,
-
-    # 1D
-    df_1d1,
-    df_1d4,
-    df_1d6,
-
-    val_1d2_1: str,
-    val_1d2_2: str,
-    val_1d2_3: str,
-    narr_1d2a: str,
-    narr_1d3: str,
-
-    val_1d5_source: str,
-    val_1d5_2023: str,
-    val_1d5_2024: str,
-
-    narr_1d6a: str,
-    narr_1d7: str,
-    narr_1d7a: str,
-    narr_1d8: str,
-    narr_1d8a: str,
-    narr_1d8b: str,
-
-    # 1D-9
-    val_1d9_1: str,
-    val_1d9_2: str,
-    narr_1d9a: str,
-    df_1d9b,
-    narr_1d9c: str,
-    narr_1d9d: str,
-
-    # 1D-10
-    narr_1d10: str,
-    val_1d10a_1_years: str,
-    val_1d10a_1_unsheltered: str,
-    val_1d10a_2_years: str,
-    val_1d10a_2_unsheltered: str,
-    val_1d10a_3_years: str,
-    val_1d10a_3_unsheltered: str,
-    val_1d10a_4_years: str,
-    val_1d10a_4_unsheltered: str,
-    narr_1d10b: str,
-    narr_1d10c: str,
-
-    # 1D-11
-    val_1d11: str,
+    # Everything else (val_*/narr_*) comes in here automatically
+    **scalars,
 ) -> pd.DataFrame:
+    """
+    Build the wide 1A/1B/1C/1D/1E row.
 
+    Parsers may add new scalar keys (val_* or narr_*). Those will:
+      1) Never crash this function (thanks to **scalars).
+      2) Be auto-projected into wide columns at the end.
+
+    Only add new explicit parameters here when introducing a NEW DataFrame
+    that needs special shaping.
+    """
+
+    def S(key: str, default: str = "") -> str:
+        v = scalars.get(key, default)
+        return "" if v is None else str(v)
 
     wide: dict[str, str] = {
         "1a_1a": meta_vals.get("coc_name", ""),
@@ -132,10 +91,10 @@ def build_wide(
         wide[f"1b_1_{i}_ces"]      = rec.get("ces", "")
 
     # 1B text extras
-    wide["1b_1a"] = narr_1b1a or ""
-    wide["1b_2"]  = narr_1b2 or ""
-    wide["1b_3"]  = narr_1b3 or ""
-    wide["1b_4"]  = narr_1b4 or ""
+    wide["1b_1a"] = S("narr_1b1a")
+    wide["1b_2"]  = S("narr_1b2")
+    wide["1b_3"]  = S("narr_1b3")
+    wide["1b_4"]  = S("narr_1b4")
 
     # 1C-1, 1C-2
     wide.update(_wide_map(df_1c1, "1c_1", 17))
@@ -154,8 +113,8 @@ def build_wide(
         d4 = {}
     for i in range(1, 5):
         wide[f"1c_4_{i}"] = d4.get(i, "")
-    wide["1c_4a"] = narr_1c4a or ""
-    wide["1c_4b"] = narr_1c4b or ""
+    wide["1c_4a"] = S("narr_1c4a")
+    wide["1c_4b"] = S("narr_1c4b")
 
     # 1C-4c dual tokens
     if df_1c4c is not None and not df_1c4c.empty:
@@ -175,8 +134,8 @@ def build_wide(
         d5 = {}
     for i in range(1, 4):
         wide[f"1c_5_{i}"] = d5.get(i, "")
-    wide["1c_5a"] = narr_1c5a or ""
-    wide["1c_5b"] = narr_1c5b or ""
+    wide["1c_5a"] = S("narr_1c5a")
+    wide["1c_5b"] = S("narr_1c5b")
 
     # 1C-5c dual tokens
     if df_1c5c is not None and not df_1c5c.empty:
@@ -189,9 +148,9 @@ def build_wide(
             wide[f"1c_5c_{i}_proj"] = ""
             wide[f"1c_5c_{i}_ces"]  = ""
 
-    wide["1c_5d"] = narr_1c5d or ""   # if you’ve wired 1C-5d
-    wide["1c_5e"] = narr_5e or ""
-    wide["1c_5f"] = narr_5f or ""
+    wide["1c_5d"] = S("narr_1c5d")
+    wide["1c_5e"] = S("narr_5e")
+    wide["1c_5f"] = S("narr_5f")
 
     # 1C-6 yes/no
     if df_1c6 is not None and not df_1c6.empty:
@@ -201,18 +160,19 @@ def build_wide(
             wide[f"1c_6_{i}"] = ""
 
     # 1C-6a + 1C-7a narratives
-    wide["1c_6a"] = narr_1c6a or ""
-    wide["1c_7a"] = narr_1c7a or ""
+    wide["1c_6a"] = S("narr_1c6a")
+    wide["1c_7a"] = S("narr_1c7a")
 
-        # 1C-7b – Moving On Strategy with Affordable Housing Providers (4 items, Yes/No)
+    # 1C-7b – Moving On Strategy with Affordable Housing Providers (4 items, Yes/No)
     wide.update(_wide_map(df_1c7b, "1c_7b", 4))
 
     # 1C-7c – PHA programs included in CE (7 items, Yes/No)
     wide.update(_wide_map(df_1c7c, "1c_7c", 7))
 
     # 1C-7d – joint CoC–PHA applications
-        # 1C-7d – joint CoC–PHA applications
-    wide["1c_7d_1"] = val_1c7d_1 or ""
+    val_1c7d_1 = S("val_1c7d_1")
+    narr_1c7d_2 = S("narr_1c7d_2")
+    wide["1c_7d_1"] = val_1c7d_1
 
     if narr_1c7d_2 and narr_1c7d_2.strip():
         wide["1c_7d_2"] = narr_1c7d_2.strip()
@@ -221,13 +181,10 @@ def build_wide(
     else:
         wide["1c_7d_2"] = ""
 
-
-
     # 1C-7e – coordination with PHA(s) for HCV/EHV
-    wide["1c_7e"] = val_1c7e or ""
+    wide["1c_7e"] = S("val_1c7e")
 
-
-        # 1C-7 – PHAs table → up to 2 rows into wide columns
+    # 1C-7 – PHAs table → up to 2 rows into wide columns
     max_pha = 2
     for i in range(1, max_pha + 1):
         wide[f"1c_7_pha_name_{i}"]      = ""
@@ -244,62 +201,56 @@ def build_wide(
             wide[f"1c_7_ph_hhm_{j}"]       = row.get("ph_hhm", "")
             wide[f"1c_7_ph_limit_hhm_{j}"] = row.get("ph_limit_hhm", "")
             wide[f"1c_7_psh_{j}"]          = row.get("psh", "")
-            
 
     # 1D-1 – public systems (1..4)
     wide.update(_wide_map(df_1d1, "1d_1", 4))
 
-
     # 1D-2 – numeric Housing First stats
-    wide["1d_2_1"] = val_1d2_1 or ""
-    wide["1d_2_2"] = val_1d2_2 or ""
-    wide["1d_2_3"] = val_1d2_3 or ""
+    wide["1d_2_1"] = S("val_1d2_1")
+    wide["1d_2_2"] = S("val_1d2_2")
+    wide["1d_2_3"] = S("val_1d2_3")
 
     # 1D-2a – narrative + 1D-3 narrative
-    wide["1d_2a"] = narr_1d2a or ""
-    wide["1d_3"]  = narr_1d3  or ""
+    wide["1d_2a"] = S("narr_1d2a")
+    wide["1d_3"]  = S("narr_1d3")
 
     # 1D-4 – Strategies to Prevent Criminalization of Homelessness
-    # Map parser's "engaged" / "implemented" to HUD-style names:
-    #   policymakers  = engaged/educated legislators and policymakers
-    #   prevent_crim  = implemented laws/policies/practices to prevent criminalization
     if df_1d4 is not None and not df_1d4.empty:
         df_1d4 = df_1d4.copy()
-        df_1d4 = df_1d4[df_1d4["index"].between(1, 3)]   # <- 3 not 4
-        for i in range(1, 4):                            # <- 3 not 4
+        df_1d4 = df_1d4[df_1d4["index"].between(1, 3)]
+        for i in range(1, 4):
             row = df_1d4[df_1d4["index"] == i]
             wide[f"1d_4_{i}_policymakers"] = row["engaged"].iloc[0] if not row.empty else ""
-            wide[f"1d_4_{i}_prevent_crim"]  = row["implemented"].iloc[0] if not row.empty else ""
+            wide[f"1d_4_{i}_prevent_crim"] = row["implemented"].iloc[0] if not row.empty else ""
     else:
-        for i in range(1, 4):                            # <- 3 not 4
+        for i in range(1, 4):
             wide[f"1d_4_{i}_policymakers"] = ""
-            wide[f"1d_4_{i}_prevent_crim"]  = ""
+            wide[f"1d_4_{i}_prevent_crim"] = ""
 
     # 1D-5 – Rapid Rehousing beds (HIC or HMIS)
-    # HUD header name for the source column is 1d_5_hmis, so store the source there.
-    wide["1d_5_hmis"]   = val_1d5_source or ""   # "HIC" or "Longitudinal HMIS Data"
-    wide["1d_5_2023"]   = val_1d5_2023 or ""
-    wide["1d_5_2024"]   = val_1d5_2024 or ""
+    wide["1d_5_hmis"] = S("val_1d5_source")
+    wide["1d_5_2023"] = S("val_1d5_2023")
+    wide["1d_5_2024"] = S("val_1d5_2024")
 
-
-     # 1D-6 – Mainstream benefits yes/no (1..6)
+    # 1D-6 – Mainstream benefits yes/no (1..6)
     if df_1d6 is not None and not df_1d6.empty:
         wide.update(_wide_map(df_1d6, "1d_6", 6))
     else:
         for i in range(1, 7):
             wide[f"1d_6_{i}"] = ""
 
-    # 1D-6a etc – narratives you already had
-    wide["1d_6a"] = narr_1d6a or ""
-    wide["1d_7"]  = narr_1d7  or ""
-    wide["1d_7a"] = narr_1d7a or ""
-    wide["1d_8"]  = narr_1d8  or ""
-    wide["1d_8a"] = narr_1d8a or ""
-    wide["1d_8b"] = narr_1d8b or ""
-        # --- 1D-9: racial equity assessment ---
-    wide["1d_9_1"] = val_1d9_1 or ""
-    wide["1d_9_2"] = val_1d9_2 or ""
-    wide["1d_9a"] = narr_1d9a or ""
+    # 1D narratives
+    wide["1d_6a"] = S("narr_1d6a")
+    wide["1d_7"]  = S("narr_1d7")
+    wide["1d_7a"] = S("narr_1d7a")
+    wide["1d_8"]  = S("narr_1d8")
+    wide["1d_8a"] = S("narr_1d8a")
+    wide["1d_8b"] = S("narr_1d8b")
+
+    # --- 1D-9: racial equity assessment ---
+    wide["1d_9_1"] = S("val_1d9_1")
+    wide["1d_9_2"] = S("val_1d9_2")
+    wide["1d_9a"]  = S("narr_1d9a")
 
     # 1D-9b – 11 strategy items (Yes/No)
     if df_1d9b is not None:
@@ -308,28 +259,65 @@ def build_wide(
         for i in range(1, 12):
             wide[f"1d_9b_{i}"] = ""
 
-    wide["1d_9c"] = narr_1d9c or ""
-    wide["1d_9d"] = narr_1d9d or ""
+    wide["1d_9c"] = S("narr_1d9c")
+    wide["1d_9d"] = S("narr_1d9d")
 
     # --- 1D-10: lived experience integration ---
-    wide["1d_10"] = narr_1d10 or ""
+    wide["1d_10"] = S("narr_1d10")
 
-    # 1D-10a table (years vs unsheltered for four roles)
-    wide["1d_10a_1_years"] = val_1d10a_1_years or ""
-    wide["1d_10a_1_unsheltered"] = val_1d10a_1_unsheltered or ""
-    wide["1d_10a_2_years"] = val_1d10a_2_years or ""
-    wide["1d_10a_2_unsheltered"] = val_1d10a_2_unsheltered or ""
-    wide["1d_10a_3_years"] = val_1d10a_3_years or ""
-    wide["1d_10a_3_unsheltered"] = val_1d10a_3_unsheltered or ""
-    wide["1d_10a_4_years"] = val_1d10a_4_years or ""
-    wide["1d_10a_4_unsheltered"] = val_1d10a_4_unsheltered or ""
+    wide["1d_10a_1_years"]       = S("val_1d10a_1_years")
+    wide["1d_10a_1_unsheltered"] = S("val_1d10a_1_unsheltered")
+    wide["1d_10a_2_years"]       = S("val_1d10a_2_years")
+    wide["1d_10a_2_unsheltered"] = S("val_1d10a_2_unsheltered")
+    wide["1d_10a_3_years"]       = S("val_1d10a_3_years")
+    wide["1d_10a_3_unsheltered"] = S("val_1d10a_3_unsheltered")
+    wide["1d_10a_4_years"]       = S("val_1d10a_4_years")
+    wide["1d_10a_4_unsheltered"] = S("val_1d10a_4_unsheltered")
 
-    # 1D-10b & 1D-10c narratives
-    wide["1d_10b"] = narr_1d10b or ""
-    wide["1d_10c"] = narr_1d10c or ""
+    wide["1d_10b"] = S("narr_1d10b")
+    wide["1d_10c"] = S("narr_1d10c")
 
-    # 1D-11 placeholder (no question in this pdf)
-    wide["1d_11"] = val_1d11 or ""
+    # 1D-11
+    wide["1d_11"] = S("val_1d11")
+
+    # --- 1E: Project Capacity, Review, and Ranking ---
+    wide["1e_1_1"] = S("val_1e_1_1")
+    wide["1e_1_2"] = S("val_1e_1_2")
+
+    for i in range(1, 7):
+        wide[f"1e_2_{i}"] = S(f"val_1e_2_{i}")
+
+    wide["1e_2a_1"] = S("val_1e_2a_1")
+    wide["1e_2a_2"] = S("val_1e_2a_2")
+    wide["1e_2a_3"] = S("val_1e_2a_3")
+
+    wide["1e_2b"] = S("narr_1e_2b")
+    wide["1e_3"]  = S("narr_1e_3")
+    wide["1e_4"]  = S("narr_1e_4")
+    wide["1e_4a"] = S("val_1e_4a")
+
+    for i in range(1, 5):
+        wide[f"1e_5_{i}"] = S(f"val_1e_5_{i}")
+
+    wide["1e_5a"] = S("narr_1e_5a")
+    wide["1e_5b"] = S("narr_1e_5b")
+    wide["1e_5c"] = S("narr_1e_5c")
+    wide["1e_5d"] = S("narr_1e_5d")
+
+    # ------------------------------
+    # Auto-add any scalar fields that map directly to wide columns.
+    # This keeps build_wide future-proof for new val_/narr_ keys.
+    # ------------------------------
+    for k, v in scalars.items():
+        if not k.startswith(("val_", "narr_")):
+            continue
+        col = k.split("_", 1)[1]  # strip val_/narr_
+        if col in wide:
+            continue
+        if k.startswith("val_") and isinstance(v, str):
+            wide[col] = norm_token(v)
+        else:
+            wide[col] = "" if v is None else str(v)
 
     # --- Ensure later-section columns exist even if not parsed yet ---
     # (placeholders so your wide_df has the full column list you requested)
@@ -358,39 +346,31 @@ def build_wide(
     ]:
         wide.setdefault(key, "")
 
-
-
     return pd.DataFrame([wide])
 
 
 def col_order_extended() -> list[str]:
     cols = []
-    cols += ["1a_1a","1a_1b","1a_2","1a_3","1a_4"]
+    cols += ["1a_1a", "1a_1b", "1a_2", "1a_3", "1a_4"]
     for i in range(1, 34):
         cols += [f"1b_1_{i}_meetings", f"1b_1_{i}_voted", f"1b_1_{i}_ces"]
-    cols += ["1b_1a","1b_2","1b_3","1b_4"]
+    cols += ["1b_1a", "1b_2", "1b_3", "1b_4"]
     cols += [f"1c_1_{i}" for i in range(1, 18)]
     cols += [f"1c_2_{i}" for i in range(1, 5)]
     cols += [f"1c_3_{i}" for i in range(1, 6)]
-    cols += [f"1c_4_{i}" for i in range(1, 5)] + ["1c_4a","1c_4b"]
+    cols += [f"1c_4_{i}" for i in range(1, 5)] + ["1c_4a", "1c_4b"]
     for i in range(1, 10):
         cols += [f"1c_4c_{i}_mou", f"1c_4c_{i}_oth"]
 
     # --- 1C-5 / 1C-6 / 1C-7 ordering ---
 
-    # 1C-5 (three yes/no items) + 5a/5b
     cols += [f"1c_5_{i}" for i in range(1, 4)] + ["1c_5a", "1c_5b"]
 
-    # 1C-5c table: project / CES counts (rows 1..6)
     for i in range(1, 7):
         cols += [f"1c_5c_{i}_proj", f"1c_5c_{i}_ces"]
 
-    # 1C-5d/e/f narratives, then 1C-6a narrative
-    # Local order here will be:
-    #   1c_5a 1c_5b 1c_5c_* ... 1c_5c_6_ces 1c_5d 1c_5e 1c_5f 1c_6a 1c_7_pha_name_1 ...
     cols += ["1c_5d", "1c_5e", "1c_5f", "1c_6a"]
 
-    # 1C-7 PHA table (up to 2 rows) + 1C-7a narrative
     for i in range(1, 3):
         cols += [
             f"1c_7_pha_name_{i}",
@@ -400,34 +380,22 @@ def col_order_extended() -> list[str]:
         ]
     cols += ["1c_7a"]
 
-    # 1C-7b, 1C-7c, 1C-7d, 1C-7e
     cols += [f"1c_7b_{i}" for i in range(1, 5)]
     cols += [f"1c_7c_{i}" for i in range(1, 8)]
     cols += ["1c_7d_1", "1c_7d_2", "1c_7e"]
-
-    # # Now park the 1C-6 yes/no items at the END of the 1C block
-    # # so they don't interrupt 5d/5e/5f/6a or 1C-7 PHA fields
-    # cols += [f"1c_6_{i}" for i in range(1, 4)]
 
     # 1D
     cols += [f"1d_1_{i}" for i in range(1, 5)]
     cols += ["1d_2_1", "1d_2_2", "1d_2_3", "1d_2a"]
     cols += ["1d_3"]
 
-    # 1D-4 – strategies to prevent criminalization
     for i in range(1, 4):
         cols += [f"1d_4_{i}_policymakers", f"1d_4_{i}_prevent_crim"]
 
-    # 1D-5 – RRH beds
     cols += ["1d_5_hmis", "1d_5_2023", "1d_5_2024"]
-
-    # 1D-6 – mainstream benefits (1..6)
     cols += [f"1d_6_{i}" for i in range(1, 7)]
-
-    # Narratives
     cols += ["1d_6a", "1d_7", "1d_7a", "1d_8", "1d_8a", "1d_8b"]
 
-    # New 1D-9/1D-10/1D-11 fields
     cols += ["1d_9_1", "1d_9_2", "1d_9a"]
     cols += [f"1d_9b_{i}" for i in range(1, 12)]
     cols += [
@@ -439,7 +407,6 @@ def col_order_extended() -> list[str]:
         "1d_10b", "1d_10c", "1d_11",
     ]
 
-    # All the later-section columns you listed
     cols += [
         "1e_1_1", "1e_1_2",
         "1e_2_1", "1e_2_2", "1e_2_3", "1e_2_4", "1e_2_5", "1e_2_6",
