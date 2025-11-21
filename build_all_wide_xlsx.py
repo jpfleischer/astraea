@@ -162,6 +162,15 @@ def main() -> int:
     ordered_cols = [c for c in base_cols if c in combined.columns]
     extra_cols = [c for c in combined.columns if c not in ordered_cols]
     combined = combined[ordered_cols + extra_cols]
+    # ---- NEW: sort by 2nd column of the final sheet ----
+    if combined.shape[1] >= 2:
+        second_col = combined.columns[1]
+        combined = combined.sort_values(
+            by=second_col,
+            kind="stable",
+            key=lambda s: s.astype(str).str.lower(),  # case-insensitive, safe for NaNs
+        ).reset_index(drop=True)
+    # ----------------------------------------------------
 
     out_path = Path(args.output_xlsx).expanduser().resolve()
     combined.to_excel(out_path, index=False)

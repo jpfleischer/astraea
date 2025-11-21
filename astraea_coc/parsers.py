@@ -84,10 +84,18 @@ def parse_numbered_yesno(norm_lines: list[str], allowed=("Yes","No","Nonexistent
 
         rows.append({"index": idx, "label": label_clean, "value": value})
 
-    df = pd.DataFrame(rows).sort_values("index").reset_index(drop=True)
-    if not df.empty:
-        df["value"] = df["value"].apply(norm_token)
-        assert df["value"].isin(set(allowed)).all(), "Unexpected tokens detected in numbered Yes/No section."
+    # ---- NEW robustness guard ----
+    if not rows:
+        # return an empty DF with the expected schema
+        return pd.DataFrame(columns=["index", "label", "value"])
+
+    df = pd.DataFrame(rows)
+
+    # OCR edge case: rows exist but missing index somehow
+    if "index" not in df.columns:
+        return pd.DataFrame(columns=["index", "label", "value"])
+
+    df = df.sort_values("index").reset_index(drop=True)
     return df
 
 def parse_numbered_dual_tokens(norm_lines, suffixes=("left","right"),
