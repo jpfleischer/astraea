@@ -3,6 +3,10 @@ from __future__ import annotations
 import pandas as pd
 from .utils import norm_token
 
+import re
+
+BOOL_LIKE = re.compile(r"^(Yes|No|Nonexistent)$", re.IGNORECASE)
+
 
 def _wide_map(df, section_prefix: str, max_index: int):
     if df is None or df.empty:
@@ -304,18 +308,31 @@ def build_wide(
     wide["1e_5c"] = S("narr_1e_5c")
     wide["1e_5d"] = S("narr_1e_5d")
 
+    wide["2a_1"] = S("val_2a_1")
+    wide["2a_2"] = S("val_2a_2")
+    wide["2a_3"] = S("val_2a_3")
+
+
     # ------------------------------
     # Auto-add any scalar fields that map directly to wide columns.
     # This keeps build_wide future-proof for new val_/narr_ keys.
     # ------------------------------
+
     for k, v in scalars.items():
         if not k.startswith(("val_", "narr_")):
             continue
-        col = k.split("_", 1)[1]  # strip val_/narr_
+        col = k.split("_", 1)[1]
+
         if col in wide:
             continue
+
         if k.startswith("val_") and isinstance(v, str):
-            wide[col] = norm_token(v)
+            s = v.strip()
+            # Only normalize real yes/no-ish fields
+            if BOOL_LIKE.fullmatch(s):
+                wide[col] = norm_token(s)
+            else:
+                wide[col] = s  # preserve capitalization + punctuation
         else:
             wide[col] = "" if v is None else str(v)
 

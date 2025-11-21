@@ -7,6 +7,7 @@ from .parsers import (
     parse_numbered_yesno,
     parse_numbered_dual_tokens,
     parse_1c7_pha,
+    parse_2a5_bed_coverage,
 )
 
 # -------------------------
@@ -174,6 +175,18 @@ TABLE_SPECS_2024: list[TableSpec] = [
         stop=[r"^\s*[1I]D[-–]9c\.", r"^\s*[1I]D[-–]10\.", r"^\s*2A[-–]1\."],
         parser=parse_numbered_yesno,
         safety_pages_ahead=4,
+    ),
+
+        # ----- 2A tables -----
+    TableSpec("df_2a5",
+        start=[r"^\s*2A[-–]5\.\s*Bed Coverage Rate"],
+        stop=[
+            r"^\s*2A[-–]5a\.",
+            r"^\s*2A[-–]6\.",
+            r"^\s*2B[-–]1\.",
+        ],
+        parser=parse_2a5_bed_coverage,
+        safety_pages_ahead=2,
     ),
 ]
 
@@ -412,4 +425,53 @@ NARR_SPECS_2024: list[NarrSpec] = [
         narr_stop=[r"^\s*1E[-–]1\.", r"^\s*1E\."],
         safety_pages_ahead=3,
     ),
+        # ----- 2A narratives -----
+    NarrSpec(
+        key="narr_2a_4",
+        anchor_start=[
+            r"^\s*2A[-–]4\.\s*Comparable Databases for DV Providers",
+            r"^\s*2A[-–]4\.\s*",
+        ],
+        anchor_stop=[r"^\s*2A[-–]5\."],
+        narr_start=[r"Describe\s+in\s+the\s+field\s+below", r"limit\s*2,?500\s*characters"],
+        narr_stop=[r"^\s*2A[-–]5\."],
+        safety_pages_ahead=3,
+    ),
+
+    NarrSpec(
+        key="narr_2a_5a",
+        anchor_start=[
+            r"^\s*2A[-–]5a\.\s*Partial Credit for Bed Coverage",
+            r"^\s*2A[-–]5a\.\s*",
+        ],
+        anchor_stop=[r"^\s*2A[-–]6\.", r"^\s*2B[-–]1\."],
+        narr_start=[r"Describe\s*:" , r"describe\s*:"],
+        narr_stop=[r"^\s*2A[-–]6\.", r"^\s*2B[-–]1\."],
+        safety_pages_ahead=2,
+    ),
+
+    # ----- 2B narratives -----
+    NarrSpec(
+        key="narr_2b_3",
+        anchor_start=[
+            r"^\s*2B[-–]3\.\s*PIT Count",
+            r"^\s*2B[-–]3\.\s*",
+        ],
+        anchor_stop=[
+            r"^\s*2B[-–]4\.",
+            r"^\s*2C[-–]1\.",
+            r"^\s*3A[-–]1\.",
+        ],
+        narr_start=[
+            r"Describe\s+in\s+the\s+field\s+below",
+            r"limit\s*2,?500\s*characters",
+        ],
+        narr_stop=[
+            r"^\s*2B[-–]4\.",
+            r"^\s*2C[-–]1\.",
+            r"^\s*3A[-–]1\.",
+        ],
+        safety_pages_ahead=3,
+    ),
+
 ]

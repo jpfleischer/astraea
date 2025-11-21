@@ -47,7 +47,13 @@ def parse_triple_table(norm_lines: list[str]) -> pd.DataFrame:
             "voted": norm_token(tokens[1]),
             "ces": norm_token(tokens[2]),
         })
+    if not rows:
+        return pd.DataFrame(columns=[
+            "org_type_index", "org_type", "meetings", "voted", "ces"
+        ])
+
     df = pd.DataFrame(rows).sort_values("org_type_index").reset_index(drop=True)
+
     allowed = {"Yes","No","Nonexistent"}
     for c in ["meetings","voted","ces"]:
         df[c] = df[c].apply(norm_token)
@@ -56,8 +62,8 @@ def parse_triple_table(norm_lines: list[str]) -> pd.DataFrame:
     return df
 
 def parse_numbered_yesno(norm_lines: list[str], allowed=("Yes","No","Nonexistent")) -> pd.DataFrame:
-    LEAD = re.compile(r"^(\d+)\.\s*(.*)$")
-    TOK  = re.compile(rf"\b({'|'.join(allowed)})\b$", re.IGNORECASE)
+    LEAD = re.compile(r"^(\d+)[\.\)\-]?\s*(.*)$")
+    TOK = re.compile(rf"\b({'|'.join(allowed)})\b[.\s]*$", re.IGNORECASE)
 
     rows, i = [], 0
     while i < len(norm_lines):
@@ -134,6 +140,9 @@ def parse_numbered_dual_tokens(norm_lines, suffixes=("left","right"),
         clean_label = full[:tail.start()].strip() if tail else full
 
         rows.append({"index": idx, "label": clean_label, suffixes[0]: val0, suffixes[1]: val1})
+
+    if not rows:
+        return pd.DataFrame(columns=["index", "label", suffixes[0], suffixes[1]])
 
     df = pd.DataFrame(rows).sort_values("index").reset_index(drop=True)
     return df
@@ -224,3 +233,57 @@ def parse_1c7_pha(norm_lines: list[str]) -> pd.DataFrame:
                 })
 
     return pd.DataFrame(rows)
+
+
+def parse_2a5_bed_coverage(lines: list[str]) -> pd.DataFrame:
+    """
+    Parse 2A-5 Bed Coverage Rate table.
+
+    Expected OCR-ish row form:
+      1. Emergency Shelter (ES) beds 80 30 110 100.00%
+    """
+    text = " ".join(ln.strip() for ln in lines if ln.strip())
+    text = re.sub(r"\s+", " ", text)
+
+    # --- NEW: drop everything before the first numbered row ---
+    m0 = re.search(r"(?:^|\s)1[\.\)]\s", text)
+    if m0:
+        text = text[m0.start():]
+
+    # OCR tolerant "beds" (allows b e d s with spaces)
+    beds_rx = r"b\s*e\s*d\s*s?"
+
+    row_rx = re.compile(
+        rf"(?:^|\s)([1-6])[\.\)]\s*"      # row number 1..6
+        rf"(.+?)\s+{beds_rx}\s+"         # project type up to 'beds'
+        rf"(\d+)\s+(\d+)\s+(\d+)\s+"     # three integer columns
+        rf"(\d+(?:\.\d+)?)\s*%?",        # percent, % optional
+        re.IGNORECASE
+    )
+
+    rows = []
+    for m in row_rx.finditer(text):
+        idx = int(m.group(1))
+        proj = m.group(2).strip()
+        non_vsp = m.group(3)
+        vsp = m.group(4)
+        total = m.group(5)
+        rate = m.group(6) + "%"
+
+        rows.append({
+            "index": idx,
+            "project_type": proj,
+            "adj_total_non_vsp_beds": non_vsp,
+            "adj_total_vsp_beds": vsp,
+            "total_hmis_plus_vsp_beds": total,
+            "coverage_rate": rate,
+        })
+
+    if not rows:
+        return pd.DataFrame(columns=[
+            "index","project_type",
+            "adj_total_non_vsp_beds","adj_total_vsp_beds",
+            "total_hmis_plus_vsp_beds","coverage_rate",
+        ])
+
+    return pd.DataFrame(rows).sort_values("index").reset_index(drop=True)

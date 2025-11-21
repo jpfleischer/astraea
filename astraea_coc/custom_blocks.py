@@ -1,11 +1,10 @@
 # custom_blocks.py
 from __future__ import annotations
-from pathlib import Path
 import re as _re
 
 from .slicer import slice_section_lines
 from .parsers import parse_numbered_yesno
-from .utils import norm_token
+from .parsers import parse_2a5_bed_coverage
 
 
 Pages = list[tuple[int, str]]
@@ -264,3 +263,355 @@ def custom_1d10a(pages: Pages) -> dict[str, str]:
         "val_1d10a_4_years": vals_years[3],
         "val_1d10a_4_unsheltered": vals_unshel[3],
     }
+
+
+def custom_2a_basic(pages) -> dict[str, str]:
+    out: dict[str, str] = {}
+
+    date_rx = _re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
+
+    boiler_rx = _re.compile(
+        r"^\s*("
+        r"2A\b|2A[-–]\d+\.|"
+        r"Homeless Management Information System|HMIS Implementation|"
+        r"HUD publishes resources|Resources include|"
+        r"Not Scored|For Information Only|"
+        r"NOFO Section|24 CFR|Navigational Guide|"
+        r"You must enter|You must provide|"
+        r"Applicant:|Project:|FY20\d{2}\s+CoC Application Page|Page\s+\d+"
+        r")",
+        _re.IGNORECASE,
+    )
+
+    # NEW: prompt prefixes that may share a line with the answer
+    prompt_strip_rxes = [
+        _re.compile(r"^\s*Enter the name of the HMIS Vendor your CoC is currently using\.\s*",
+                    _re.IGNORECASE),
+        _re.compile(r"^\s*Select from dropdown menu your CoC’s HMIS coverage area\.\s*",
+                    _re.IGNORECASE),
+        _re.compile(r"^\s*Enter the date your CoC submitted its 2024 HIC data into HDX\.\s*",
+                    _re.IGNORECASE),
+    ]
+
+    def _strip_prompt_prefix(s: str) -> str:
+        for rx in prompt_strip_rxes:
+            s2 = rx.sub("", s).strip()
+            if s2 != s:
+                s = s2
+        return s
+
+    def _extract_free_text(lines: list[str]) -> str:
+        keep: list[str] = []
+        for ln in lines:
+            raw = ln.strip()
+            if not raw:
+                continue
+
+            s = _strip_prompt_prefix(raw)
+
+            # NEW: strip leading list markers / bullets
+            s = _re.sub(r"^\s*\d+[\.\)]\s*", "", s)
+            s = _re.sub(r"^\s*[\-\u2022•]+\s*", "", s)
+            if _re.fullmatch(r"[.\)\-]+", s):
+                continue
+
+            # if line is still pure boilerplate, skip
+            if boiler_rx.search(s):
+                continue
+
+            if s:
+                keep.append(s)
+
+        if not keep:
+            return "Empty"
+
+        text = " ".join(keep)
+        text = _re.sub(r"\s+,", ",", text)
+        text = _re.sub(r"\s+", " ", text).strip()
+        return text
+
+
+    def _pick_answer_date(lines: list[str]) -> str:
+        candidates: list[str] = []
+        for ln in lines:
+            raw = ln.strip()
+            if not raw:
+                continue
+
+            s = _strip_prompt_prefix(raw)
+
+            if boiler_rx.search(s):
+                continue
+
+            ds = date_rx.findall(s)
+            if not ds:
+                continue
+
+            stripped = s.strip()
+            if _re.fullmatch(r"\d{2}/\d{2}/\d{4}", stripped):
+                candidates.extend(ds)
+            elif stripped.endswith(ds[-1]):
+                candidates.extend(ds)
+
+        return candidates[-1] if candidates else "Empty"
+
+    # 2A-1 vendor
+    lines_2a1 = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*2A[-–]1\.\s*HMIS Vendor"],
+        stop_patterns=[r"^\s*2A[-–]2\."],
+        safety_pages_ahead=2,
+    )
+    out["val_2a_1"] = _extract_free_text(lines_2a1)
+
+    # 2A-2 coverage area
+    lines_2a2 = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*2A[-–]2\.\s*HMIS Implementation Coverage Area"],
+        stop_patterns=[r"^\s*2A[-–]3\."],
+        safety_pages_ahead=2,
+    )
+    out["val_2a_2"] = _extract_free_text(lines_2a2)
+
+    # 2A-3 HIC submission date
+    lines_2a3 = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*2A[-–]3\.\s*HIC Data Submission in HDX"],
+        stop_patterns=[r"^\s*2A[-–]4\."],
+        safety_pages_ahead=2,
+    )
+    out["val_2a_3"] = _pick_answer_date(lines_2a3)
+
+    return out
+
+
+
+def custom_2a4(pages: Pages) -> dict[str, str]:
+    """
+    2A-4 is a narrative block.
+    Use the same prompt-skipping logic as 1E narratives.
+    """
+    lines_2a4 = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*2A[-–]4\.\s*Comparable Databases for DV Providers"],
+        stop_patterns=[r"^\s*2A[-–]5\."],
+        safety_pages_ahead=3,
+    )
+
+    header_skip = _re.compile(
+        r"^\s*(NOFO Section|Applicant:|Project:|FY20\d{2}\s+CoC Application Page|Page\s+\d+)",
+        _re.IGNORECASE,
+    )
+    limit_line = _re.compile(r"limit\s*2,?500\s*characters", _re.IGNORECASE)
+    describe_line = _re.compile(r"Describe\s+in\s+the\s+field\s+below", _re.IGNORECASE)
+
+    state = "seek_anchor"
+    prompt_seen = False
+    buf: list[str] = []
+
+    for ln in lines_2a4:
+        if header_skip.search(ln):
+            continue
+
+        stripped = ln.strip()
+
+        if state == "seek_anchor":
+            if describe_line.search(ln):
+                state = "in_prompt"
+                prompt_seen = True
+                continue
+            if limit_line.search(ln):
+                state = "in_answer"
+                continue
+            continue
+
+        if state == "in_prompt":
+            if limit_line.search(ln):
+                state = "in_answer"
+                continue
+            if not stripped and prompt_seen:
+                state = "in_answer"
+                continue
+            if stripped:
+                prompt_seen = True
+            continue
+
+        # in_answer
+        if not stripped:
+            buf.append("")
+        else:
+            buf.append(ln.rstrip())
+
+    text = "\n".join(buf).strip()
+
+    # Clean the OCR hanging quote/parens you saw
+    text = _re.sub(r'^\s*"\)\s*', "", text)
+    text = _re.sub(r'\s*"\s*$', "", text).strip()
+
+    if not text:
+        text = "Empty"
+
+    return {"narr_2a_4": text}
+
+
+def custom_2a5(pages: Pages) -> dict[str, str]:
+    """
+    2A-5 is a 6-row numeric table. We parse it to a DF, then
+    emit scalar keys that auto-map into wide columns:
+      val_2a_5_{i}_non_vsp
+      val_2a_5_{i}_vsp
+      val_2a_5_{i}_hmis
+      val_2a_5_{i}_coverage
+    """
+    lines_2a5 = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*2A[-–]5\.\s*Bed Coverage Rate"],
+        stop_patterns=[r"^\s*2A[-–]5a\."],
+        safety_pages_ahead=2,
+    )
+
+    df = parse_2a5_bed_coverage(lines_2a5)
+
+    out: dict[str, str] = {}
+
+    # default empties for all 6 rows
+    for i in range(1, 7):
+        out[f"val_2a_5_{i}_non_vsp"] = "Empty"
+        out[f"val_2a_5_{i}_vsp"]     = "Empty"
+        out[f"val_2a_5_{i}_hmis"]    = "Empty"
+        out[f"val_2a_5_{i}_coverage"]= "Empty"
+
+    if df is None or df.empty:
+        return out
+
+    for _, row in df.iterrows():
+        i = int(row["index"])
+        if not (1 <= i <= 6):
+            continue
+        out[f"val_2a_5_{i}_non_vsp"]  = str(row.get("adj_total_non_vsp_beds", "")).strip() or "Empty"
+        out[f"val_2a_5_{i}_vsp"]      = str(row.get("adj_total_vsp_beds", "")).strip() or "Empty"
+        out[f"val_2a_5_{i}_hmis"]     = str(row.get("total_hmis_plus_vsp_beds", "")).strip() or "Empty"
+        out[f"val_2a_5_{i}_coverage"] = str(row.get("coverage_rate", "")).strip() or "Empty"
+
+    return out
+
+
+def custom_2a5a(pages: Pages) -> dict[str, str]:
+    """
+    2A-5a is a narrative block.
+    """
+    lines_2a5a = slice_section_lines(
+        pages,
+        start_patterns=[r"^\s*2A[-–]5a\.\s*Partial Credit for Bed Coverage Rates"],
+        stop_patterns=[r"^\s*2A[-–]6\."],
+        safety_pages_ahead=3,
+    )
+
+    # reuse same narrative stripper as 2a4
+    header_skip = _re.compile(
+        r"^\s*(NOFO Section|Applicant:|Project:|FY20\d{2}\s+CoC Application Page|Page\s+\d+)",
+        _re.IGNORECASE,
+    )
+    limit_line = _re.compile(r"limit\s*2,?500\s*characters", _re.IGNORECASE)
+    describe_line = _re.compile(r"Describe\s+in\s+the\s+field\s+below", _re.IGNORECASE)
+
+    state = "seek_anchor"
+    prompt_seen = False
+    buf: list[str] = []
+
+    for ln in lines_2a5a:
+        if header_skip.search(ln):
+            continue
+        stripped = ln.strip()
+
+        if state == "seek_anchor":
+            if describe_line.search(ln):
+                state = "in_prompt"
+                prompt_seen = True
+                continue
+            if limit_line.search(ln):
+                state = "in_answer"
+                continue
+            continue
+
+        if state == "in_prompt":
+            if limit_line.search(ln):
+                state = "in_answer"
+                continue
+            if not stripped and prompt_seen:
+                state = "in_answer"
+                continue
+            if stripped:
+                prompt_seen = True
+            continue
+
+        if not stripped:
+            buf.append("")
+        else:
+            buf.append(ln.rstrip())
+
+    text = "\n".join(buf).strip()
+    if not text:
+        text = "Empty"
+
+    return {"narr_2a_5a": text}
+
+
+def custom_2a6(pages: Pages) -> dict[str, str]:
+    start_2a6 = [
+        r"^\s*2A[-–]6\.\s*Longitudinal System Analysis",
+        r"^\s*2A[-–]6\.\s*",
+    ]
+    stop_2a6 = [
+        r"^\s*2B[-–]1\.",
+        r"^\s*2B\.",
+        r"^\s*2C[-–]1\.",
+    ]
+    lines_2a6 = slice_section_lines(pages, start_2a6, stop_2a6, safety_pages_ahead=2)
+
+    yesno_rx = _re.compile(r"\b(Yes|No)\b", _re.IGNORECASE)
+    val = "Empty"
+    for ln in reversed(lines_2a6):
+        m = yesno_rx.search(ln)
+        if m:
+            val = m.group(1).title()
+            break
+
+    return {"val_2a_6": val}
+
+
+def custom_2b1(pages: Pages) -> dict[str, str]:
+    start_2b1 = [
+        r"^\s*2B[-–]1\.\s*PIT Count Date",
+        r"^\s*2B[-–]1\.\s*",
+    ]
+    stop_2b1 = [
+        r"^\s*2B[-–]2\.",
+        r"^\s*2B[-–]3\.",
+        r"^\s*2C[-–]1\.",
+    ]
+    lines_2b1 = slice_section_lines(pages, start_2b1, stop_2b1, safety_pages_ahead=2)
+
+    date_rx = _re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
+    dates = date_rx.findall("\n".join(lines_2b1))
+    val = dates[-1] if dates else "Empty"
+
+    return {"val_2b_1": val}
+
+
+def custom_2b2(pages: Pages) -> dict[str, str]:
+    start_2b2 = [
+        r"^\s*2B[-–]2\.\s*PIT Count Data",
+        r"^\s*2B[-–]2\.\s*",
+    ]
+    stop_2b2 = [
+        r"^\s*2B[-–]3\.",
+        r"^\s*2C[-–]1\.",
+    ]
+    lines_2b2 = slice_section_lines(pages, start_2b2, stop_2b2, safety_pages_ahead=2)
+
+    date_rx = _re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
+    dates = date_rx.findall("\n".join(lines_2b2))
+    val = dates[-1] if dates else "Empty"
+
+    return {"val_2b_2": val}
